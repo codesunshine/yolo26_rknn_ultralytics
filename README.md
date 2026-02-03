@@ -1,66 +1,138 @@
-# 🚀 YOLO26 RKNN Export Adaptation
+# 🚀 YOLO26 RKNN 导出适配
 
-> **⚡ Optimized for Rockchip NPU Performance**
+> **⚡ 专为瑞芯微 NPU 性能优化**
 
-This repository includes optimized RKNN export support for YOLO26 models, designed for high-performance inference on Rockchip NPU devices.
+本仓库为 YOLO26 模型提供了优化的 RKNN 导出支持，专为瑞芯微 NPU 设备的高性能推理而设计。
 
-## ✨ Key Features
+## ✨ 核心特性
 
-- **🎯 Raw Output Export**: Models export without post-processing (no NMS, no sigmoid, no decode)
-- **⚡ CPU Post-processing**: Move decode/NMS operations to CPU for better NPU utilization
-- **🔧 Multi-task Support**: Works with Detection, Segmentation, OBB, and Pose models
+- **🎯 原始输出导出**：模型导出时不包含后处理（无 NMS、无 sigmoid、无解码）
+- **⚡ CPU 后处理**：将解码/NMS 操作移至 CPU，提升 NPU 利用率
+- **🔧 多任务支持**：适用于检测、分割、旋转框检测和姿态估计模型
 
-## 📋 Export Format
+## 📋 导出格式
 
-**Detection Model Output Structure:**
+**检测模型输出结构：**
 ```
-Input:  images [1, 3, 640, 640]
+输入:  images [1, 3, 640, 640]
 
-Outputs (6 tensors for 3 detection heads):
-├─ output0_reg [1, 4*reg_max, 80, 80]  # Head 0 regression (raw DFL output)
-├─ output0_cls [1, nc, 80, 80]         # Head 0 classification (raw logits)
-├─ output1_reg [1, 4*reg_max, 40, 40]  # Head 1 regression
-├─ output1_cls [1, nc, 40, 40]         # Head 1 classification
-├─ output2_reg [1, 4*reg_max, 20, 20]  # Head 2 regression
-└─ output2_cls [1, nc, 20, 20]         # Head 2 classification
+输出 (3个检测头共6个张量):
+├─ output0_reg [1, 4*reg_max, 80, 80]  # Head 0 回归输出（原始 DFL 输出）
+├─ output0_cls [1, nc, 80, 80]         # Head 0 分类输出（原始 logits）
+├─ output1_reg [1, 4*reg_max, 40, 40]  # Head 1 回归输出
+├─ output1_cls [1, nc, 40, 40]         # Head 1 分类输出
+├─ output2_reg [1, 4*reg_max, 20, 20]  # Head 2 回归输出
+└─ output2_cls [1, nc, 20, 20]         # Head 2 分类输出
 ```
 
-## 🔨 Usage
+## 🔨 使用方法
+
+### 步骤 1: 导出 ONNX 模型
 
 ```bash
-# Export YOLO26 model to RKNN-compatible ONNX format
+# 将 YOLO26 模型导出为 RKNN 兼容的 ONNX 格式
 yolo export model=yolo26n.pt format=rknn
-
-# The exported ONNX file can then be converted using RKNN-Toolkit/RKNN-Toolkit2
-# Refer to: https://github.com/airockchip/rknn_model_zoo/tree/main/examples/
 ```
 
-## 📝 Implementation Details
+### 步骤 2: 转换为 RKNN 模型
 
-### Modified Files
-- **`ultralytics/engine/exporter.py`**: Enhanced `export_rknn()` method
-  - Uses optimal ONNX opset version
-  - Embeds all weights in single file
-  - Sets meaningful output tensor names
+本仓库的 `rknn_export/` 目录包含了完整的 RKNN 转换工具：
+- `convert.py`：ONNX 到 RKNN 的转换脚本
+- `datasets/`：量化校准数据集
+
+#### 环境准备
+
+**⚠️ 重要**：建议创建新的虚拟环境，因为 rknn-toolkit2 的某些依赖与 ultralytics 冲突
+
+```bash
+# 安装 RKNN-Toolkit2
+pip install -U rknn-toolkit2
+```
+
+#### 使用转换脚本
+
+查看帮助信息：
+
+```bash
+python rknn_export/convert.py -h
+```
+
+**必需参数：**
+- `--model-path`：ONNX 模型文件路径（步骤 1 导出的 `.onnx` 文件）
+- `--platform`：目标平台，可选值：
+  - `rk3562`, `rk3566`, `rk3568`, `rk3576`, `rk3588`
+  - `rv1126b`, `rv1109`, `rv1126`, `rk1808`
+
+**可选参数：**
+- `--dtype`：量化数据类型（默认：`i8`）
+  - `i8` 或 `fp`：适用于 `rk3562`, `rk3566`, `rk3568`, `rk3576`, `rk3588`, `rv1126b`
+  - `u8` 或 `fp`：适用于 `rv1109`, `rv1126`, `rk1808`
+- `--rknn-path`：RKNN 模型输出路径（默认：`./<model_name>.rknn`）
+- `--data-path`：量化校准数据集路径（默认：`datasets/COCO/coco_subset_20.txt`）
+  - 使用自定义数据时，需准备包含图像路径的 txt 文件
+- `--batch-size`：批处理大小（默认：`1`）
+  - 可根据 NPU 核心数调整（如 RK3588 有 3 个核心，可设为 3）
+  - ⚠️ 注意：此参数会固定模型输出维度
+
+#### 示例命令
+
+```bash
+# 基础转换（RK3588 平台，INT8 量化）
+python rknn_export/convert.py \
+  --model-path best.onnx \
+  --platform rk3588 \
+  --dtype i8
+
+# 指定输出路径和量化数据集
+python rknn_export/convert.py \
+  --model-path yolo26n.onnx \
+  --platform rk3588 \
+  --dtype i8 \
+  --rknn-path ./models/yolo26n_rk3588.rknn \
+  --data-path ./my_dataset/images.txt
+
+# 多核心批处理（RK3588）
+python rknn_export/convert.py \
+  --model-path best.onnx \
+  --platform rk3588 \
+  --dtype i8 \
+  --batch-size 3
+```
+
+转换完成后会显示：
+```
+rknn model saved to: ./best.rknn
+```
+
+更多部署示例请参考：[RKNN Model Zoo](https://github.com/airockchip/rknn_model_zoo/tree/main/examples/)
+
+## 📝 实现细节
+
+### 修改的文件
+- **`ultralytics/engine/exporter.py`**：增强 `export_rknn()` 方法
+  - 使用最优 ONNX opset 版本
+  - 将所有权重嵌入单个文件
+  - 设置有意义的输出张量名称
   
-- **`ultralytics/nn/modules/head.py`**: Updated `Detect`, `Segment`, `OBB`, `Pose` classes
-  - Added RKNN-specific forward logic
-  - Returns raw predictions without activation functions
+- **`ultralytics/nn/modules/head.py`**：更新 `Detect`、`Segment`、`OBB`、`Pose` 类
+  - 添加 RKNN 特定的前向传播逻辑
+  - 返回未经激活函数处理的原始预测
   
-- **`ultralytics/nn/autobackend.py`**: Added RKNN inference support notes
+- **`ultralytics/nn/autobackend.py`**：添加 RKNN 推理支持说明
 
-### Training & Inference
-- ✅ **Training**: Not affected - all modifications only apply during export
-- ✅ **Standard Export**: Other export formats (ONNX, TensorRT, etc.) work as before
-- ✅ **RKNN Export**: Special handling only when `format=rknn`
+### 训练与推理
+- ✅ **训练**：不受影响 - 所有修改仅在导出时生效
+- ✅ **标准导出**：其他导出格式（ONNX、TensorRT 等）保持原样
+- ✅ **RKNN 导出**：仅在 `format=rknn` 时启用特殊处理
 
-## 🎯 Performance Benefits
+## 🎯 性能优势
 
-- **Faster Inference**: Post-processing on CPU is faster than on NPU for models
-- **Better NPU Utilization**: NPU focuses on backbone and head computations
-- **Flexible Deployment**: Easy to customize post-processing logic
+- **更快的推理**：模型在 CPU 上进行后处理比在 NPU 上更快
+- **更好的 NPU 利用率**：NPU 专注于骨干网络和检测头的计算
+- **灵活的部署**：可轻松自定义后处理逻辑
 
 ---
+
 
 <div align="center">
   <p>
@@ -85,11 +157,11 @@ yolo export model=yolo26n.pt format=rknn
 </div>
 <br>
 
-[Ultralytics](https://www.ultralytics.com/) creates cutting-edge, state-of-the-art (SOTA) [YOLO models](https://www.ultralytics.com/yolo) built on years of foundational research in computer vision and AI. Constantly updated for performance and flexibility, our models are **fast**, **accurate**, and **easy to use**. They excel at [object detection](https://docs.ultralytics.com/tasks/detect/), [tracking](https://docs.ultralytics.com/modes/track/), [instance segmentation](https://docs.ultralytics.com/tasks/segment/), [image classification](https://docs.ultralytics.com/tasks/classify/), and [pose estimation](https://docs.ultralytics.com/tasks/pose/) tasks.
+[Ultralytics](https://www.ultralytics.com/) 基于多年在计算机视觉和人工智能领域的基础研究，创造了尖端的、最先进的 (SOTA) [YOLO 模型](https://www.ultralytics.com/yolo)。我们的模型不断更新以提高性能和灵活性，具有**速度快**、**精度高**和**易于使用**的特点。它们在[目标检测](https://docs.ultralytics.com/tasks/detect/)、[跟踪](https://docs.ultralytics.com/modes/track/)、[实例分割](https://docs.ultralytics.com/tasks/segment/)、[图像分类](https://docs.ultralytics.com/tasks/classify/)和[姿态估计](https://docs.ultralytics.com/tasks/pose/)任务中表现出色。
 
-Find detailed documentation in the [Ultralytics Docs](https://docs.ultralytics.com/). Get support via [GitHub Issues](https://github.com/ultralytics/ultralytics/issues/new/choose). Join discussions on [Discord](https://discord.com/invite/ultralytics), [Reddit](https://www.reddit.com/r/ultralytics/), and the [Ultralytics Community Forums](https://community.ultralytics.com/)!
+在 [Ultralytics 文档](https://docs.ultralytics.com/)中查找详细文档。通过 [GitHub Issues](https://github.com/ultralytics/ultralytics/issues/new/choose) 获取支持。加入 [Discord](https://discord.com/invite/ultralytics)、[Reddit](https://www.reddit.com/r/ultralytics/) 和 [Ultralytics 社区论坛](https://community.ultralytics.com/)参与讨论！
 
-Request an Enterprise License for commercial use at [Ultralytics Licensing](https://www.ultralytics.com/license).
+如需商业用途，请在 [Ultralytics 授权许可](https://www.ultralytics.com/license)申请企业许可证。
 
 <a href="https://platform.ultralytics.com/ultralytics/yolo26" target="_blank">
   <img width="100%" src="https://raw.githubusercontent.com/ultralytics/assets/refs/heads/main/yolo/performance-comparison.png" alt="YOLO26 performance plots">
@@ -111,14 +183,14 @@ Request an Enterprise License for commercial use at [Ultralytics Licensing](http
   <a href="https://discord.com/invite/ultralytics"><img src="https://github.com/ultralytics/assets/raw/main/social/logo-social-discord.png" width="2%" alt="Ultralytics Discord"></a>
 </div>
 
-## 📄 Documentation
+## 📄 文档
 
-See below for quickstart installation and usage examples. For comprehensive guidance on training, validation, prediction, and deployment, refer to our full [Ultralytics Docs](https://docs.ultralytics.com/).
+请参阅下文了解快速安装和使用示例。有关训练、验证、预测和部署的全面指南，请参阅我们的完整 [Ultralytics 文档](https://docs.ultralytics.com/)。
 
 <details open>
-<summary>Install</summary>
+<summary>安装</summary>
 
-Install the `ultralytics` package, including all [requirements](https://github.com/ultralytics/ultralytics/blob/main/pyproject.toml), in a [**Python>=3.8**](https://www.python.org/) environment with [**PyTorch>=1.8**](https://pytorch.org/get-started/locally/).
+在 [**Python>=3.8**](https://www.python.org/) 环境中安装 `ultralytics` 包，包括所有[依赖项](https://github.com/ultralytics/ultralytics/blob/main/pyproject.toml)，并确保 [**PyTorch>=1.8**](https://pytorch.org/get-started/locally/)。
 
 [![PyPI - Version](https://img.shields.io/pypi/v/ultralytics?logo=pypi&logoColor=white)](https://pypi.org/project/ultralytics/) [![Ultralytics Downloads](https://static.pepy.tech/badge/ultralytics)](https://clickpy.clickhouse.com/dashboard/ultralytics) [![PyPI - Python Version](https://img.shields.io/pypi/pyversions/ultralytics?logo=python&logoColor=gold)](https://pypi.org/project/ultralytics/)
 
@@ -126,62 +198,62 @@ Install the `ultralytics` package, including all [requirements](https://github.c
 pip install ultralytics
 ```
 
-For alternative installation methods, including [Conda](https://anaconda.org/conda-forge/ultralytics), [Docker](https://hub.docker.com/r/ultralytics/ultralytics), and building from source via Git, please consult the [Quickstart Guide](https://docs.ultralytics.com/quickstart/).
+有关其他安装方法，包括 [Conda](https://anaconda.org/conda-forge/ultralytics)、[Docker](https://hub.docker.com/r/ultralytics/ultralytics) 以及通过 Git 从源代码构建，请查阅[快速入门指南](https://docs.ultralytics.com/quickstart/)。
 
 [![Conda Version](https://img.shields.io/conda/vn/conda-forge/ultralytics?logo=condaforge)](https://anaconda.org/conda-forge/ultralytics) [![Docker Image Version](https://img.shields.io/docker/v/ultralytics/ultralytics?sort=semver&logo=docker)](https://hub.docker.com/r/ultralytics/ultralytics) [![Ultralytics Docker Pulls](https://img.shields.io/docker/pulls/ultralytics/ultralytics?logo=docker)](https://hub.docker.com/r/ultralytics/ultralytics)
 
 </details>
 
 <details open>
-<summary>Usage</summary>
+<summary>使用方法</summary>
 
 ### CLI
 
-You can use Ultralytics YOLO directly from the Command Line Interface (CLI) with the `yolo` command:
+您可以直接通过命令行界面 (CLI) 使用 `yolo` 命令来运行 Ultralytics YOLO：
 
 ```bash
-# Predict using a pretrained YOLO model (e.g., YOLO26n) on an image
+# 使用预训练的 YOLO 模型 (例如 YOLO26n) 对图像进行预测
 yolo predict model=yolo26n.pt source='https://ultralytics.com/images/bus.jpg'
 ```
 
-The `yolo` command supports various tasks and modes, accepting additional arguments like `imgsz=640`. Explore the YOLO [CLI Docs](https://docs.ultralytics.com/usage/cli/) for more examples.
+`yolo` 命令支持各种任务和模式，并接受额外的参数，如 `imgsz=640`。浏览 YOLO [CLI 文档](https://docs.ultralytics.com/usage/cli/)获取更多示例。
 
 ### Python
 
-Ultralytics YOLO can also be integrated directly into your Python projects. It accepts the same [configuration arguments](https://docs.ultralytics.com/usage/cfg/) as the CLI:
+Ultralytics YOLO 也可以直接集成到您的 Python 项目中。它接受与 CLI 相同的[配置参数](https://docs.ultralytics.com/usage/cfg/)：
 
 ```python
 from ultralytics import YOLO
 
-# Load a pretrained YOLO26n model
+# 加载一个预训练的 YOLO26n 模型
 model = YOLO("yolo26n.pt")
 
-# Train the model on the COCO8 dataset for 100 epochs
+# 在 COCO8 数据集上训练模型 100 个周期
 train_results = model.train(
-    data="coco8.yaml",  # Path to dataset configuration file
-    epochs=100,  # Number of training epochs
-    imgsz=640,  # Image size for training
-    device="cpu",  # Device to run on (e.g., 'cpu', 0, [0,1,2,3])
+    data="coco8.yaml",  # 数据集配置文件路径
+    epochs=100,  # 训练周期数
+    imgsz=640,  # 训练图像尺寸
+    device="cpu",  # 运行设备 (例如 'cpu', 0, [0,1,2,3])
 )
 
-# Evaluate the model's performance on the validation set
+# 评估模型在验证集上的性能
 metrics = model.val()
 
-# Perform object detection on an image
-results = model("path/to/image.jpg")  # Predict on an image
-results[0].show()  # Display results
+# 对图像执行目标检测
+results = model("path/to/image.jpg")  # 对图像进行预测
+results[0].show()  # 显示结果
 
-# Export the model to ONNX format for deployment
-path = model.export(format="onnx")  # Returns the path to the exported model
+# 将模型导出为 ONNX 格式以进行部署
+path = model.export(format="onnx")  # 返回导出模型的路径
 ```
 
-Discover more examples in the YOLO [Python Docs](https://docs.ultralytics.com/usage/python/).
+在 YOLO [Python 文档](https://docs.ultralytics.com/usage/python/)中发现更多示例。
 
 </details>
 
-## ✨ Models
+## ✨ 模型
 
-Ultralytics supports a wide range of YOLO models, from early versions like [YOLOv3](https://docs.ultralytics.com/models/yolov3/) to the latest [YOLO26](https://docs.ultralytics.com/models/yolo26/). The tables below showcase YOLO26 models pretrained on the [COCO](https://docs.ultralytics.com/datasets/detect/coco/) dataset for [Detection](https://docs.ultralytics.com/tasks/detect/), [Segmentation](https://docs.ultralytics.com/tasks/segment/), and [Pose Estimation](https://docs.ultralytics.com/tasks/pose/). Additionally, [Classification](https://docs.ultralytics.com/tasks/classify/) models pretrained on the [ImageNet](https://docs.ultralytics.com/datasets/classify/imagenet/) dataset are available. [Tracking](https://docs.ultralytics.com/modes/track/) mode is compatible with all Detection, Segmentation, and Pose models. All [Models](https://docs.ultralytics.com/models/) are automatically downloaded from the latest Ultralytics [release](https://github.com/ultralytics/assets/releases) upon first use.
+Ultralytics 支持广泛的 YOLO 模型，从早期的版本如 [YOLOv3](https://docs.ultralytics.com/models/yolov3/) 到最新的 [YOLO26](https://docs.ultralytics.com/models/yolo26/)。下表展示了在 [COCO](https://docs.ultralytics.com/datasets/detect/coco/) 数据集上预训练的 YOLO26 模型，用于[检测](https://docs.ultralytics.com/tasks/detect/)、[分割](https://docs.ultralytics.com/tasks/segment/)和[姿态估计](https://docs.ultralytics.com/tasks/pose/)任务。此外，还提供了在 [ImageNet](https://docs.ultralytics.com/datasets/classify/imagenet/) 数据集上预训练的[分类](https://docs.ultralytics.com/tasks/classify/)模型。[跟踪](https://docs.ultralytics.com/modes/track/)模式与所有检测、分割和姿态模型兼容。所有[模型](https://docs.ultralytics.com/models/)在首次使用时都会自动从最新的 Ultralytics [发布版本](https://github.com/ultralytics/assets/releases)下载。
 
 <a href="https://docs.ultralytics.com/tasks/" target="_blank">
     <img width="100%" src="https://github.com/ultralytics/docs/releases/download/0/ultralytics-yolov8-tasks-banner.avif" alt="Ultralytics YOLO supported tasks">
@@ -189,94 +261,94 @@ Ultralytics supports a wide range of YOLO models, from early versions like [YOLO
 <br>
 <br>
 
-<details open><summary>Detection (COCO)</summary>
+<details open><summary>检测 (COCO)</summary>
 
-Explore the [Detection Docs](https://docs.ultralytics.com/tasks/detect/) for usage examples. These models are trained on the [COCO dataset](https://cocodataset.org/), featuring 80 object classes.
+浏览[检测文档](https://docs.ultralytics.com/tasks/detect/)获取使用示例。这些模型在 [COCO 数据集](https://cocodataset.org/)上训练，包含 80 个对象类别。
 
-| Model                                                                                | size<br><sup>(pixels)</sup> | mAP<sup>val<br>50-95</sup> | mAP<sup>val<br>50-95(e2e)</sup> | Speed<br><sup>CPU ONNX<br>(ms)</sup> | Speed<br><sup>T4 TensorRT10<br>(ms)</sup> | params<br><sup>(M)</sup> | FLOPs<br><sup>(B)</sup> |
-| ------------------------------------------------------------------------------------ | --------------------------- | -------------------------- | ------------------------------- | ------------------------------------ | ----------------------------------------- | ------------------------ | ----------------------- |
-| [YOLO26n](https://github.com/ultralytics/assets/releases/download/v8.4.0/yolo26n.pt) | 640                         | 40.9                       | 40.1                            | 38.9 ± 0.7                           | 1.7 ± 0.0                                 | 2.4                      | 5.4                     |
-| [YOLO26s](https://github.com/ultralytics/assets/releases/download/v8.4.0/yolo26s.pt) | 640                         | 48.6                       | 47.8                            | 87.2 ± 0.9                           | 2.5 ± 0.0                                 | 9.5                      | 20.7                    |
-| [YOLO26m](https://github.com/ultralytics/assets/releases/download/v8.4.0/yolo26m.pt) | 640                         | 53.1                       | 52.5                            | 220.0 ± 1.4                          | 4.7 ± 0.1                                 | 20.4                     | 68.2                    |
-| [YOLO26l](https://github.com/ultralytics/assets/releases/download/v8.4.0/yolo26l.pt) | 640                         | 55.0                       | 54.4                            | 286.2 ± 2.0                          | 6.2 ± 0.2                                 | 24.8                     | 86.4                    |
-| [YOLO26x](https://github.com/ultralytics/assets/releases/download/v8.4.0/yolo26x.pt) | 640                         | 57.5                       | 56.9                            | 525.8 ± 4.0                          | 11.8 ± 0.2                                | 55.7                     | 193.9                   |
+| 模型                                                                                 | 尺寸<br><sup>(像素) | mAP<sup>val<br>50-95 | 速度<br><sup>CPU ONNX<br>(毫秒) | 速度<br><sup>T4 TensorRT10<br>(毫秒) | 参数<br><sup>(百万) | FLOPs<br><sup>(十亿) |
+| ------------------------------------------------------------------------------------ | ------------------- | -------------------- | ------------------------------- | ------------------------------------ | ------------------- | -------------------- |
+| [YOLO26n](https://github.com/ultralytics/assets/releases/download/v8.4.0/yolo26n.pt) | 640                 | 40.9                 | 38.9 ± 0.7                      | 1.7 ± 0.0                            | 2.4                 | 5.4                  |
+| [YOLO26s](https://github.com/ultralytics/assets/releases/download/v8.4.0/yolo26s.pt) | 640                 | 48.6                 | 87.2 ± 0.9                      | 2.5 ± 0.0                            | 9.5                 | 20.7                 |
+| [YOLO26m](https://github.com/ultralytics/assets/releases/download/v8.4.0/yolo26m.pt) | 640                 | 53.1                 | 220.0 ± 1.4                     | 4.7 ± 0.1                            | 20.4                | 68.2                 |
+| [YOLO26l](https://github.com/ultralytics/assets/releases/download/v8.4.0/yolo26l.pt) | 640                 | 55.0                 | 286.2 ± 2.0                     | 6.2 ± 0.2                            | 24.8                | 86.4                 |
+| [YOLO26x](https://github.com/ultralytics/assets/releases/download/v8.4.0/yolo26x.pt) | 640                 | 57.5                 | 525.8 ± 4.0                     | 11.8 ± 0.2                           | 55.7                | 193.9                |
 
-- **mAP<sup>val</sup>** values refer to single-model single-scale performance on the [COCO val2017](https://cocodataset.org/) dataset. See [YOLO Performance Metrics](https://docs.ultralytics.com/guides/yolo-performance-metrics/) for details. <br>Reproduce with `yolo val detect data=coco.yaml device=0`
-- **Speed** metrics are averaged over COCO val images using an [Amazon EC2 P4d](https://aws.amazon.com/ec2/instance-types/p4/) instance. CPU speeds measured with [ONNX](https://onnx.ai/) export. GPU speeds measured with [TensorRT](https://developer.nvidia.com/tensorrt) export. <br>Reproduce with `yolo val detect data=coco.yaml batch=1 device=0|cpu`
-
-</details>
-
-<details><summary>Segmentation (COCO)</summary>
-
-Refer to the [Segmentation Docs](https://docs.ultralytics.com/tasks/segment/) for usage examples. These models are trained on [COCO-Seg](https://docs.ultralytics.com/datasets/segment/coco/), including 80 classes.
-
-| Model                                                                                        | size<br><sup>(pixels)</sup> | mAP<sup>box<br>50-95(e2e)</sup> | mAP<sup>mask<br>50-95(e2e)</sup> | Speed<br><sup>CPU ONNX<br>(ms)</sup> | Speed<br><sup>T4 TensorRT10<br>(ms)</sup> | params<br><sup>(M)</sup> | FLOPs<br><sup>(B)</sup> |
-| -------------------------------------------------------------------------------------------- | --------------------------- | ------------------------------- | -------------------------------- | ------------------------------------ | ----------------------------------------- | ------------------------ | ----------------------- |
-| [YOLO26n-seg](https://github.com/ultralytics/assets/releases/download/v8.4.0/yolo26n-seg.pt) | 640                         | 39.6                            | 33.9                             | 53.3 ± 0.5                           | 2.1 ± 0.0                                 | 2.7                      | 9.1                     |
-| [YOLO26s-seg](https://github.com/ultralytics/assets/releases/download/v8.4.0/yolo26s-seg.pt) | 640                         | 47.3                            | 40.0                             | 118.4 ± 0.9                          | 3.3 ± 0.0                                 | 10.4                     | 34.2                    |
-| [YOLO26m-seg](https://github.com/ultralytics/assets/releases/download/v8.4.0/yolo26m-seg.pt) | 640                         | 52.5                            | 44.1                             | 328.2 ± 2.4                          | 6.7 ± 0.1                                 | 23.6                     | 121.5                   |
-| [YOLO26l-seg](https://github.com/ultralytics/assets/releases/download/v8.4.0/yolo26l-seg.pt) | 640                         | 54.4                            | 45.5                             | 387.0 ± 3.7                          | 8.0 ± 0.1                                 | 28.0                     | 139.8                   |
-| [YOLO26x-seg](https://github.com/ultralytics/assets/releases/download/v8.4.0/yolo26x-seg.pt) | 640                         | 56.5                            | 47.0                             | 787.0 ± 6.8                          | 16.4 ± 0.1                                | 62.8                     | 313.5                   |
-
-- **mAP<sup>val</sup>** values are for single-model single-scale on the [COCO val2017](https://cocodataset.org/) dataset. See [YOLO Performance Metrics](https://docs.ultralytics.com/guides/yolo-performance-metrics/) for details. <br>Reproduce with `yolo val segment data=coco.yaml device=0`
-- **Speed** metrics are averaged over COCO val images using an [Amazon EC2 P4d](https://aws.amazon.com/ec2/instance-types/p4/) instance. CPU speeds measured with [ONNX](https://onnx.ai/) export. GPU speeds measured with [TensorRT](https://developer.nvidia.com/tensorrt) export. <br>Reproduce with `yolo val segment data=coco.yaml batch=1 device=0|cpu`
+- **mAP<sup>val</sup>** 值指的是在 [COCO val2017](https://cocodataset.org/) 数据集上的单模型单尺度性能。详见 [YOLO 性能指标](https://docs.ultralytics.com/guides/yolo-performance-metrics/)。<br>使用 `yolo val detect data=coco.yaml device=0` 复现结果。
+- **速度** 指标是在 [Amazon EC2 P4d](https://aws.amazon.com/ec2/instance-types/p4/) 实例上对 COCO val 图像进行平均测量的。CPU 速度使用 [ONNX](https://onnx.ai/) 导出进行测量。GPU 速度使用 [TensorRT](https://developer.nvidia.com/tensorrt) 导出进行测量。<br>使用 `yolo val detect data=coco.yaml batch=1 device=0|cpu` 复现结果。
 
 </details>
 
-<details><summary>Classification (ImageNet)</summary>
+<details><summary>分割 (COCO)</summary>
 
-Consult the [Classification Docs](https://docs.ultralytics.com/tasks/classify/) for usage examples. These models are trained on [ImageNet](https://docs.ultralytics.com/datasets/classify/imagenet/), covering 1000 classes.
+请参阅[分割文档](https://docs.ultralytics.com/tasks/segment/)获取使用示例。这些模型在 [COCO-Seg](https://docs.ultralytics.com/datasets/segment/coco/) 数据集上训练，包含 80 个类别。
 
-| Model                                                                                        | size<br><sup>(pixels)</sup> | acc<br><sup>top1</sup> | acc<br><sup>top5</sup> | Speed<br><sup>CPU ONNX<br>(ms)</sup> | Speed<br><sup>T4 TensorRT10<br>(ms)</sup> | params<br><sup>(M)</sup> | FLOPs<br><sup>(B) at 224</sup> |
-| -------------------------------------------------------------------------------------------- | --------------------------- | ---------------------- | ---------------------- | ------------------------------------ | ----------------------------------------- | ------------------------ | ------------------------------ |
-| [YOLO26n-cls](https://github.com/ultralytics/assets/releases/download/v8.4.0/yolo26n-cls.pt) | 224                         | 71.4                   | 90.1                   | 5.0 ± 0.3                            | 1.1 ± 0.0                                 | 2.8                      | 0.5                            |
-| [YOLO26s-cls](https://github.com/ultralytics/assets/releases/download/v8.4.0/yolo26s-cls.pt) | 224                         | 76.0                   | 92.9                   | 7.9 ± 0.2                            | 1.3 ± 0.0                                 | 6.7                      | 1.6                            |
-| [YOLO26m-cls](https://github.com/ultralytics/assets/releases/download/v8.4.0/yolo26m-cls.pt) | 224                         | 78.1                   | 94.2                   | 17.2 ± 0.4                           | 2.0 ± 0.0                                 | 11.6                     | 4.9                            |
-| [YOLO26l-cls](https://github.com/ultralytics/assets/releases/download/v8.4.0/yolo26l-cls.pt) | 224                         | 79.0                   | 94.6                   | 23.2 ± 0.3                           | 2.8 ± 0.0                                 | 14.1                     | 6.2                            |
-| [YOLO26x-cls](https://github.com/ultralytics/assets/releases/download/v8.4.0/yolo26x-cls.pt) | 224                         | 79.9                   | 95.0                   | 41.4 ± 0.9                           | 3.8 ± 0.0                                 | 29.6                     | 13.6                           |
+| 模型                                                                                         | 尺寸<br><sup>(像素) | mAP<sup>box<br>50-95 | mAP<sup>mask<br>50-95 | 速度<br><sup>CPU ONNX<br>(毫秒) | 速度<br><sup>T4 TensorRT10<br>(毫秒) | 参数<br><sup>(百万) | FLOPs<br><sup>(十亿) |
+| -------------------------------------------------------------------------------------------- | ------------------- | -------------------- | --------------------- | ------------------------------- | ------------------------------------ | ------------------- | -------------------- |
+| [YOLO26n-seg](https://github.com/ultralytics/assets/releases/download/v8.4.0/yolo26n-seg.pt) | 640                 | 39.6                 | 33.9                  | 53.3 ± 0.5                      | 2.1 ± 0.0                            | 2.7                 | 9.1                  |
+| [YOLO26s-seg](https://github.com/ultralytics/assets/releases/download/v8.4.0/yolo26s-seg.pt) | 640                 | 47.3                 | 40.0                  | 118.4 ± 0.9                     | 3.3 ± 0.0                            | 10.4                | 34.2                 |
+| [YOLO26m-seg](https://github.com/ultralytics/assets/releases/download/v8.4.0/yolo26m-seg.pt) | 640                 | 52.5                 | 44.1                  | 328.2 ± 2.4                     | 6.7 ± 0.1                            | 23.6                | 121.5                |
+| [YOLO26l-seg](https://github.com/ultralytics/assets/releases/download/v8.4.0/yolo26l-seg.pt) | 640                 | 54.4                 | 45.5                  | 387.0 ± 3.7                     | 8.0 ± 0.1                            | 28.0                | 139.8                |
+| [YOLO26x-seg](https://github.com/ultralytics/assets/releases/download/v8.4.0/yolo26x-seg.pt) | 640                 | 56.5                 | 47.0                  | 787.0 ± 6.8                     | 16.4 ± 0.1                           | 62.8                | 313.5                |
 
-- **acc** values represent model accuracy on the [ImageNet](https://www.image-net.org/) dataset validation set. <br>Reproduce with `yolo val classify data=path/to/ImageNet device=0`
-- **Speed** metrics are averaged over ImageNet val images using an [Amazon EC2 P4d](https://aws.amazon.com/ec2/instance-types/p4/) instance. CPU speeds measured with [ONNX](https://onnx.ai/) export. GPU speeds measured with [TensorRT](https://developer.nvidia.com/tensorrt) export. <br>Reproduce with `yolo val classify data=path/to/ImageNet batch=1 device=0|cpu`
-
-</details>
-
-<details><summary>Pose (COCO)</summary>
-
-See the [Pose Estimation Docs](https://docs.ultralytics.com/tasks/pose/) for usage examples. These models are trained on [COCO-Pose](https://docs.ultralytics.com/datasets/pose/coco/), focusing on the 'person' class.
-
-| Model                                                                                          | size<br><sup>(pixels)</sup> | mAP<sup>pose<br>50-95(e2e)</sup> | mAP<sup>pose<br>50(e2e)</sup> | Speed<br><sup>CPU ONNX<br>(ms)</sup> | Speed<br><sup>T4 TensorRT10<br>(ms)</sup> | params<br><sup>(M)</sup> | FLOPs<br><sup>(B)</sup> |
-| ---------------------------------------------------------------------------------------------- | --------------------------- | -------------------------------- | ----------------------------- | ------------------------------------ | ----------------------------------------- | ------------------------ | ----------------------- |
-| [YOLO26n-pose](https://github.com/ultralytics/assets/releases/download/v8.4.0/yolo26n-pose.pt) | 640                         | 57.2                             | 83.3                          | 40.3 ± 0.5                           | 1.8 ± 0.0                                 | 2.9                      | 7.5                     |
-| [YOLO26s-pose](https://github.com/ultralytics/assets/releases/download/v8.4.0/yolo26s-pose.pt) | 640                         | 63.0                             | 86.6                          | 85.3 ± 0.9                           | 2.7 ± 0.0                                 | 10.4                     | 23.9                    |
-| [YOLO26m-pose](https://github.com/ultralytics/assets/releases/download/v8.4.0/yolo26m-pose.pt) | 640                         | 68.8                             | 89.6                          | 218.0 ± 1.5                          | 5.0 ± 0.1                                 | 21.5                     | 73.1                    |
-| [YOLO26l-pose](https://github.com/ultralytics/assets/releases/download/v8.4.0/yolo26l-pose.pt) | 640                         | 70.4                             | 90.5                          | 275.4 ± 2.4                          | 6.5 ± 0.1                                 | 25.9                     | 91.3                    |
-| [YOLO26x-pose](https://github.com/ultralytics/assets/releases/download/v8.4.0/yolo26x-pose.pt) | 640                         | 71.6                             | 91.6                          | 565.4 ± 3.0                          | 12.2 ± 0.2                                | 57.6                     | 201.7                   |
-
-- **mAP<sup>val</sup>** values are for single-model single-scale on the [COCO Keypoints val2017](https://docs.ultralytics.com/datasets/pose/coco/) dataset. See [YOLO Performance Metrics](https://docs.ultralytics.com/guides/yolo-performance-metrics/) for details. <br>Reproduce with `yolo val pose data=coco-pose.yaml device=0`
-- **Speed** metrics are averaged over COCO val images using an [Amazon EC2 P4d](https://aws.amazon.com/ec2/instance-types/p4/) instance. CPU speeds measured with [ONNX](https://onnx.ai/) export. GPU speeds measured with [TensorRT](https://developer.nvidia.com/tensorrt) export. <br>Reproduce with `yolo val pose data=coco-pose.yaml batch=1 device=0|cpu`
+- **mAP<sup>val</sup>** 值指的是在 [COCO val2017](https://cocodataset.org/) 数据集上的单模型单尺度性能。详见 [YOLO 性能指标](https://docs.ultralytics.com/guides/yolo-performance-metrics/)。<br>使用 `yolo val segment data=coco.yaml device=0` 复现结果。
+- **速度** 指标是在 [Amazon EC2 P4d](https://aws.amazon.com/ec2/instance-types/p4/) 实例上对 COCO val 图像进行平均测量的。CPU 速度使用 [ONNX](https://onnx.ai/) 导出进行测量。GPU 速度使用 [TensorRT](https://developer.nvidia.com/tensorrt) 导出进行测量。<br>使用 `yolo val segment data=coco.yaml batch=1 device=0|cpu` 复现结果。
 
 </details>
 
-<details><summary>Oriented Bounding Boxes (DOTAv1)</summary>
+<details><summary>分类 (ImageNet)</summary>
 
-Check the [OBB Docs](https://docs.ultralytics.com/tasks/obb/) for usage examples. These models are trained on [DOTAv1](https://docs.ultralytics.com/datasets/obb/dota-v2/#dota-v10/), including 15 classes.
+请查阅[分类文档](https://docs.ultralytics.com/tasks/classify/)获取使用示例。这些模型在 [ImageNet](https://docs.ultralytics.com/datasets/classify/imagenet/) 数据集上训练，涵盖 1000 个类别。
 
-| Model                                                                                        | size<br><sup>(pixels)</sup> | mAP<sup>test<br>50-95(e2e)</sup> | mAP<sup>test<br>50(e2e)</sup> | Speed<br><sup>CPU ONNX<br>(ms)</sup> | Speed<br><sup>T4 TensorRT10<br>(ms)</sup> | params<br><sup>(M)</sup> | FLOPs<br><sup>(B)</sup> |
-| -------------------------------------------------------------------------------------------- | --------------------------- | -------------------------------- | ----------------------------- | ------------------------------------ | ----------------------------------------- | ------------------------ | ----------------------- |
-| [YOLO26n-obb](https://github.com/ultralytics/assets/releases/download/v8.4.0/yolo26n-obb.pt) | 1024                        | 52.4                             | 78.9                          | 97.7 ± 0.9                           | 2.8 ± 0.0                                 | 2.5                      | 14.0                    |
-| [YOLO26s-obb](https://github.com/ultralytics/assets/releases/download/v8.4.0/yolo26s-obb.pt) | 1024                        | 54.8                             | 80.9                          | 218.0 ± 1.4                          | 4.9 ± 0.1                                 | 9.8                      | 55.1                    |
-| [YOLO26m-obb](https://github.com/ultralytics/assets/releases/download/v8.4.0/yolo26m-obb.pt) | 1024                        | 55.3                             | 81.0                          | 579.2 ± 3.8                          | 10.2 ± 0.3                                | 21.2                     | 183.3                   |
-| [YOLO26l-obb](https://github.com/ultralytics/assets/releases/download/v8.4.0/yolo26l-obb.pt) | 1024                        | 56.2                             | 81.6                          | 735.6 ± 3.1                          | 13.0 ± 0.2                                | 25.6                     | 230.0                   |
-| [YOLO26x-obb](https://github.com/ultralytics/assets/releases/download/v8.4.0/yolo26x-obb.pt) | 1024                        | 56.7                             | 81.7                          | 1485.7 ± 11.5                        | 30.5 ± 0.9                                | 57.6                     | 516.5                   |
+| 模型                                                                                         | 尺寸<br><sup>(像素) | acc<br><sup>top1 | acc<br><sup>top5 | 速度<br><sup>CPU ONNX<br>(毫秒) | 速度<br><sup>T4 TensorRT10<br>(毫秒) | 参数<br><sup>(百万) | FLOPs<br><sup>(十亿) @ 224 |
+| -------------------------------------------------------------------------------------------- | ------------------- | ---------------- | ---------------- | ------------------------------- | ------------------------------------ | ------------------- | -------------------------- |
+| [YOLO26n-cls](https://github.com/ultralytics/assets/releases/download/v8.4.0/yolo26n-cls.pt) | 224                 | 71.4             | 90.1             | 5.0 ± 0.3                       | 1.1 ± 0.0                            | 2.8                 | 0.5                        |
+| [YOLO26s-cls](https://github.com/ultralytics/assets/releases/download/v8.4.0/yolo26s-cls.pt) | 224                 | 76.0             | 92.9             | 7.9 ± 0.2                       | 1.3 ± 0.0                            | 6.7                 | 1.6                        |
+| [YOLO26m-cls](https://github.com/ultralytics/assets/releases/download/v8.4.0/yolo26m-cls.pt) | 224                 | 78.1             | 94.2             | 17.2 ± 0.4                      | 2.0 ± 0.0                            | 11.6                | 4.9                        |
+| [YOLO26l-cls](https://github.com/ultralytics/assets/releases/download/v8.4.0/yolo26l-cls.pt) | 224                 | 79.0             | 94.6             | 23.2 ± 0.3                      | 2.8 ± 0.0                            | 14.1                | 6.2                        |
+| [YOLO26x-cls](https://github.com/ultralytics/assets/releases/download/v8.4.0/yolo26x-cls.pt) | 224                 | 79.9             | 95.0             | 41.4 ± 0.9                      | 3.8 ± 0.0                            | 29.6                | 13.6                       |
 
-- **mAP<sup>test</sup>** values are for single-model multiscale performance on the [DOTAv1 test set](https://captain-whu.github.io/DOTA/dataset.html). <br>Reproduce by `yolo val obb data=DOTAv1.yaml device=0 split=test` and submit merged results to the [DOTA evaluation server](https://captain-whu.github.io/DOTA/evaluation.html).
-- **Speed** metrics are averaged over [DOTAv1 val images](https://docs.ultralytics.com/datasets/obb/dota-v2/#dota-v10) using an [Amazon EC2 P4d](https://aws.amazon.com/ec2/instance-types/p4/) instance. CPU speeds measured with [ONNX](https://onnx.ai/) export. GPU speeds measured with [TensorRT](https://developer.nvidia.com/tensorrt) export. <br>Reproduce by `yolo val obb data=DOTAv1.yaml batch=1 device=0|cpu`
+- **acc** 值表示模型在 [ImageNet](https://www.image-net.org/) 数据集验证集上的准确率。<br>使用 `yolo val classify data=path/to/ImageNet device=0` 复现结果。
+- **速度** 指标是在 [Amazon EC2 P4d](https://aws.amazon.com/ec2/instance-types/p4/) 实例上对 ImageNet val 图像进行平均测量的。CPU 速度使用 [ONNX](https://onnx.ai/) 导出进行测量。GPU 速度使用 [TensorRT](https://developer.nvidia.com/tensorrt) 导出进行测量。<br>使用 `yolo val classify data=path/to/ImageNet batch=1 device=0|cpu` 复现结果。
 
 </details>
 
-## 🧩 Integrations
+<details><summary>姿态估计 (COCO)</summary>
 
-Our key integrations with leading AI platforms extend the functionality of Ultralytics' offerings, enhancing tasks like dataset labeling, training, visualization, and model management. Discover how Ultralytics, in collaboration with partners like [Weights & Biases](https://docs.ultralytics.com/integrations/weights-biases/), [Comet ML](https://docs.ultralytics.com/integrations/comet/), [Roboflow](https://docs.ultralytics.com/integrations/roboflow/), and [Intel OpenVINO](https://docs.ultralytics.com/integrations/openvino/), can optimize your AI workflow. Explore more at [Ultralytics Integrations](https://docs.ultralytics.com/integrations/).
+请参阅[姿态估计文档](https://docs.ultralytics.com/tasks/pose/)获取使用示例。这些模型在 [COCO-Pose](https://docs.ultralytics.com/datasets/pose/coco/) 数据集上训练，专注于 'person' 类别。
+
+| 模型                                                                                           | 尺寸<br><sup>(像素) | mAP<sup>pose<br>50-95 | mAP<sup>pose<br>50 | 速度<br><sup>CPU ONNX<br>(毫秒) | 速度<br><sup>T4 TensorRT10<br>(毫秒) | 参数<br><sup>(百万) | FLOPs<br><sup>(十亿) |
+| ---------------------------------------------------------------------------------------------- | ------------------- | --------------------- | ------------------ | ------------------------------- | ------------------------------------ | ------------------- | -------------------- |
+| [YOLO26n-pose](https://github.com/ultralytics/assets/releases/download/v8.4.0/yolo26n-pose.pt) | 640                 | 57.2                  | 83.3               | 40.3 ± 0.5                      | 1.8 ± 0.0                            | 2.9                 | 7.5                  |
+| [YOLO26s-pose](https://github.com/ultralytics/assets/releases/download/v8.4.0/yolo26s-pose.pt) | 640                 | 63.0                  | 86.6               | 85.3 ± 0.9                      | 2.7 ± 0.0                            | 10.4                | 23.9                 |
+| [YOLO26m-pose](https://github.com/ultralytics/assets/releases/download/v8.4.0/yolo26m-pose.pt) | 640                 | 68.8                  | 89.6               | 218.0 ± 1.5                     | 5.0 ± 0.1                            | 21.5                | 73.1                 |
+| [YOLO26l-pose](https://github.com/ultralytics/assets/releases/download/v8.4.0/yolo26l-pose.pt) | 640                 | 70.4                  | 90.5               | 275.4 ± 2.4                     | 6.5 ± 0.1                            | 25.9                | 91.3                 |
+| [YOLO26x-pose](https://github.com/ultralytics/assets/releases/download/v8.4.0/yolo26x-pose.pt) | 640                 | 71.7                  | 91.6               | 565.4 ± 3.0                     | 12.2 ± 0.2                           | 57.6                | 201.7                |
+
+- **mAP<sup>val</sup>** 值指的是在 [COCO Keypoints val2017](https://docs.ultralytics.com/datasets/pose/coco/) 数据集上的单模型单尺度性能。详见 [YOLO 性能指标](https://docs.ultralytics.com/guides/yolo-performance-metrics/)。<br>使用 `yolo val pose data=coco-pose.yaml device=0` 复现结果。
+- **速度** 指标是在 [Amazon EC2 P4d](https://aws.amazon.com/ec2/instance-types/p4/) 实例上对 COCO val 图像进行平均测量的。CPU 速度使用 [ONNX](https://onnx.ai/) 导出进行测量。GPU 速度使用 [TensorRT](https://developer.nvidia.com/tensorrt) 导出进行测量。<br>使用 `yolo val pose data=coco-pose.yaml batch=1 device=0|cpu` 复现结果。
+
+</details>
+
+<details><summary>定向边界框 (DOTAv1)</summary>
+
+请查阅 [OBB 文档](https://docs.ultralytics.com/tasks/obb/)获取使用示例。这些模型在 [DOTAv1](https://docs.ultralytics.com/datasets/obb/dota-v2/#dota-v10) 数据集上训练，包含 15 个类别。
+
+| 模型                                                                                         | 尺寸<br><sup>(像素) | mAP<sup>test<br>50 | 速度<br><sup>CPU ONNX<br>(毫秒) | 速度<br><sup>T4 TensorRT10<br>(毫秒) | 参数<br><sup>(百万) | FLOPs<br><sup>(十亿) |
+| -------------------------------------------------------------------------------------------- | ------------------- | ------------------ | ------------------------------- | ------------------------------------ | ------------------- | -------------------- |
+| [YOLO26n-obb](https://github.com/ultralytics/assets/releases/download/v8.4.0/yolo26n-obb.pt) | 1024                | 78.9               | 97.7 ± 0.9                      | 2.8 ± 0.0                            | 2.5                 | 14.0                 |
+| [YOLO26s-obb](https://github.com/ultralytics/assets/releases/download/v8.4.0/yolo26s-obb.pt) | 1024                | 80.9               | 218.0 ± 1.4                     | 4.9 ± 0.1                            | 9.8                 | 55.1                 |
+| [YOLO26m-obb](https://github.com/ultralytics/assets/releases/download/v8.4.0/yolo26m-obb.pt) | 1024                | 81.0               | 579.2 ± 3.8                     | 10.2 ± 0.3                           | 21.2                | 183.3                |
+| [YOLO26l-obb](https://github.com/ultralytics/assets/releases/download/v8.4.0/yolo26l-obb.pt) | 1024                | 81.6               | 735.6 ± 3.1                     | 13.0 ± 0.2                           | 25.6                | 230.0                |
+| [YOLO26x-obb](https://github.com/ultralytics/assets/releases/download/v8.4.0/yolo26x-obb.pt) | 1024                | 81.7               | 1485.7 ± 11.5                   | 30.5 ± 0.9                           | 57.6                | 516.5                |
+
+- **mAP<sup>test</sup>** 值指的是在 [DOTAv1 测试集](https://captain-whu.github.io/DOTA/dataset.html)上的单模型多尺度性能。<br>通过 `yolo val obb data=DOTAv1.yaml device=0 split=test` 复现结果，并将合并后的结果提交到 [DOTA 评估服务器](https://captain-whu.github.io/DOTA/evaluation.html)。
+- **速度** 指标是在 [Amazon EC2 P4d](https://aws.amazon.com/ec2/instance-types/p4/) 实例上对 [DOTAv1 val 图像](https://docs.ultralytics.com/datasets/obb/dota-v2/#dota-v10)进行平均测量的。CPU 速度使用 [ONNX](https://onnx.ai/) 导出进行测量。GPU 速度使用 [TensorRT](https://developer.nvidia.com/tensorrt) 导出进行测量。<br>通过 `yolo val obb data=DOTAv1.yaml batch=1 device=0|cpu` 复现结果。
+
+</details>
+
+## 🧩 集成
+
+我们与领先 AI 平台的关键集成扩展了 Ultralytics 产品的功能，增强了数据集标注、训练、可视化和模型管理等任务。了解 Ultralytics 如何与 [Weights & Biases](https://docs.ultralytics.com/integrations/weights-biases/)、[Comet ML](https://docs.ultralytics.com/integrations/comet/)、[Roboflow](https://docs.ultralytics.com/integrations/roboflow/) 和 [Intel OpenVINO](https://docs.ultralytics.com/integrations/openvino/) 等合作伙伴协作，优化您的 AI 工作流程。在 [Ultralytics 集成](https://docs.ultralytics.com/integrations/)了解更多信息。
 
 <a href="https://docs.ultralytics.com/integrations/" target="_blank">
     <img width="100%" src="https://github.com/ultralytics/assets/raw/main/yolov8/banner-integrations.png" alt="Ultralytics active learning integrations">
@@ -298,30 +370,30 @@ Our key integrations with leading AI platforms extend the functionality of Ultra
     <img src="https://github.com/ultralytics/assets/raw/main/partners/logo-neuralmagic.png" width="10%" alt="Neural Magic logo"></a>
 </div>
 
-|                                                                   Ultralytics Platform 🌟                                                                   |                                                          Weights & Biases                                                           |                                                                              Comet                                                                              |                                                        Neural Magic                                                         |
-| :---------------------------------------------------------------------------------------------------------------------------------------------------------: | :---------------------------------------------------------------------------------------------------------------------------------: | :-------------------------------------------------------------------------------------------------------------------------------------------------------------: | :-------------------------------------------------------------------------------------------------------------------------: |
-| Streamline YOLO workflows: Label, train, and deploy effortlessly with [Ultralytics Platform](https://platform.ultralytics.com/ultralytics/yolo26). Try now! | Track experiments, hyperparameters, and results with [Weights & Biases](https://docs.ultralytics.com/integrations/weights-biases/). | Free forever, [Comet ML](https://docs.ultralytics.com/integrations/comet/) lets you save YOLO models, resume training, and interactively visualize predictions. | Run YOLO inference up to 6x faster with [Neural Magic DeepSparse](https://docs.ultralytics.com/integrations/neural-magic/). |
+|                                                        Ultralytics Platform 🌟                                                        |                                              Weights & Biases                                               |                                                               Comet                                                                |                                                       Neural Magic                                                       |
+| :-----------------------------------------------------------------------------------------------------------------------------------: | :---------------------------------------------------------------------------------------------------------: | :--------------------------------------------------------------------------------------------------------------------------------: | :----------------------------------------------------------------------------------------------------------------------: |
+| 简化 YOLO 工作流程：使用 [Ultralytics 平台](https://platform.ultralytics.com/ultralytics/yolo26) 轻松进行标注、训练和部署。立即试用！ | 使用 [Weights & Biases](https://docs.ultralytics.com/integrations/weights-biases/) 跟踪实验、超参数和结果。 | 永久免费的 [Comet ML](https://docs.ultralytics.com/integrations/comet/) 让您能够保存 YOLO 模型、恢复训练并交互式地可视化预测结果。 | 使用 [Neural Magic DeepSparse](https://docs.ultralytics.com/integrations/neural-magic/)，将 YOLO 推理速度提高多达 6 倍。 |
 
-## 🤝 Contribute
+## 🤝 贡献
 
-We thrive on community collaboration! Ultralytics YOLO wouldn't be the SOTA framework it is without contributions from developers like you. Please see our [Contributing Guide](https://docs.ultralytics.com/help/contributing/) to get started. We also welcome your feedback—share your experience by completing our [Survey](https://www.ultralytics.com/survey?utm_source=github&utm_medium=social&utm_campaign=Survey). A huge **Thank You** 🙏 to everyone who contributes!
+我们依靠社区协作蓬勃发展！没有像您这样的开发者的贡献，Ultralytics YOLO 就不会成为如今最先进的框架。请参阅我们的[贡献指南](https://docs.ultralytics.com/help/contributing/)开始贡献。我们也欢迎您的反馈——通过完成我们的[调查问卷](https://www.ultralytics.com/survey?utm_source=github&utm_medium=social&utm_campaign=Survey)分享您的体验。非常**感谢** 🙏 每一位贡献者！
 
 <!-- SVG image from https://opencollective.com/ultralytics/contributors.svg?width=1280 -->
 
 [![Ultralytics open-source contributors](https://raw.githubusercontent.com/ultralytics/assets/main/im/image-contributors.png)](https://github.com/ultralytics/ultralytics/graphs/contributors)
 
-We look forward to your contributions to help make the Ultralytics ecosystem even better!
+我们期待您的贡献，帮助 Ultralytics 生态系统变得更好！
 
-## 📜 License
+## 📜 许可证
 
-Ultralytics offers two licensing options to suit different needs:
+Ultralytics 提供两种许可选项以满足不同需求：
 
-- **AGPL-3.0 License**: This [OSI-approved](https://opensource.org/license/agpl-v3) open-source license is perfect for students, researchers, and enthusiasts. It encourages open collaboration and knowledge sharing. See the [LICENSE](https://github.com/ultralytics/ultralytics/blob/main/LICENSE) file for full details.
-- **Ultralytics Enterprise License**: Designed for commercial use, this license allows for the seamless integration of Ultralytics software and AI models into commercial products and services, bypassing the open-source requirements of AGPL-3.0. If your use case involves commercial deployment, please contact us via [Ultralytics Licensing](https://www.ultralytics.com/license).
+- **AGPL-3.0 许可证**：这种经 [OSI 批准](https://opensource.org/license/agpl-v3)的开源许可证非常适合学生、研究人员和爱好者。它鼓励开放协作和知识共享。有关完整详细信息，请参阅 [LICENSE](https://github.com/ultralytics/ultralytics/blob/main/LICENSE) 文件。
+- **Ultralytics 企业许可证**：专为商业用途设计，此许可证允许将 Ultralytics 软件和 AI 模型无缝集成到商业产品和服务中，绕过 AGPL-3.0 的开源要求。如果您的使用场景涉及商业部署，请通过 [Ultralytics 授权许可](https://www.ultralytics.com/license)与我们联系。
 
-## 📞 Contact
+## 📞 联系方式
 
-For bug reports and feature requests related to Ultralytics software, please visit [GitHub Issues](https://github.com/ultralytics/ultralytics/issues). For questions, discussions, and community support, join our active communities on [Discord](https://discord.com/invite/ultralytics), [Reddit](https://www.reddit.com/r/ultralytics/), and the [Ultralytics Community Forums](https://community.ultralytics.com/). We're here to help with all things Ultralytics!
+有关 Ultralytics 软件的错误报告和功能请求，请访问 [GitHub Issues](https://github.com/ultralytics/ultralytics/issues)。如有疑问、讨论和社区支持，请加入我们在 [Discord](https://discord.com/invite/ultralytics)、[Reddit](https://www.reddit.com/r/ultralytics/?rdt=44154) 和 [Ultralytics 社区论坛](https://community.ultralytics.com/)上的活跃社区。我们随时为您提供有关 Ultralytics 的所有帮助！
 
 <br>
 <div align="center">
