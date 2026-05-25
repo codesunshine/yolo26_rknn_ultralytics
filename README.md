@@ -13,6 +13,7 @@
 ## 📋 导出格式
 
 **检测模型输出结构：**
+
 ```
 输入:  images [1, 3, 640, 640]
 
@@ -37,6 +38,7 @@ yolo export model=yolo26n.pt format=rknn
 ### 步骤 2: 转换为 RKNN 模型
 
 本仓库的 `rknn_export/` 目录包含了完整的 RKNN 转换工具：
+
 - `convert.py`：ONNX 到 RKNN 的转换脚本
 - `datasets/`：量化校准数据集
 
@@ -58,12 +60,14 @@ python rknn_export/convert.py -h
 ```
 
 **必需参数：**
+
 - `--model-path`：ONNX 模型文件路径（步骤 1 导出的 `.onnx` 文件）
 - `--platform`：目标平台，可选值：
   - `rk3562`, `rk3566`, `rk3568`, `rk3576`, `rk3588`
   - `rv1126b`, `rv1109`, `rv1126`, `rk1808`
 
 **可选参数：**
+
 - `--dtype`：量化数据类型（默认：`i8`）
   - `i8` 或 `fp`：适用于 `rk3562`, `rk3566`, `rk3568`, `rk3576`, `rk3588`, `rv1126b`
   - `u8` 或 `fp`：适用于 `rv1109`, `rv1126`, `rk1808`
@@ -100,6 +104,7 @@ python rknn_export/convert.py \
 ```
 
 转换完成后会显示：
+
 ```
 rknn model saved to: ./best.rknn
 ```
@@ -109,18 +114,18 @@ rknn model saved to: ./best.rknn
 ## 📝 实现细节
 
 ### 修改的文件
+
 - **`ultralytics/engine/exporter.py`**：增强 `export_rknn()` 方法
   - 使用最优 ONNX opset 版本
   - 将所有权重嵌入单个文件
   - 设置有意义的输出张量名称
-  
 - **`ultralytics/nn/modules/head.py`**：更新 `Detect`、`Segment`、`OBB`、`Pose` 类
   - 添加 RKNN 特定的前向传播逻辑
   - 返回未经激活函数处理的原始预测
-  
 - **`ultralytics/nn/autobackend.py`**：添加 RKNN 推理支持说明
 
 ### 训练与推理
+
 - ✅ **训练**：不受影响 - 所有修改仅在导出时生效
 - ✅ **标准导出**：其他导出格式（ONNX、TensorRT 等）保持原样
 - ✅ **RKNN 导出**：仅在 `format=rknn` 时启用特殊处理
@@ -132,7 +137,6 @@ rknn model saved to: ./best.rknn
 - **灵活的部署**：可轻松自定义后处理逻辑
 
 ---
-
 
 <div align="center">
   <p>
