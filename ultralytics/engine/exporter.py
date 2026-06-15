@@ -84,7 +84,6 @@ from ultralytics.nn.tasks import ClassificationModel, DetectionModel, Segmentati
 from ultralytics.utils import (
     ARM64,
     DEFAULT_CFG,
-    IS_COLAB,
     IS_DEBIAN_BOOKWORM,
     IS_DEBIAN_TRIXIE,
     IS_JETSON,
@@ -1264,19 +1263,19 @@ class Exporter:
         import onnx
 
         LOGGER.info(f"\n{prefix} starting export with torch {torch.__version__}...")
-        f = str(self.file).replace(self.file.suffix, f".onnx")
-        
+        f = str(self.file).replace(self.file.suffix, ".onnx")
+
         # Use best opset version for better compatibility
         opset_version = self.args.opset or best_onnx_opset(onnx, cuda="cuda" in self.device.type)
         LOGGER.info(f"{prefix} using ONNX opset {opset_version}...")
-        
+
         # Generate meaningful output names for each head: reg and cls outputs
         # Assuming 3 detection heads with output sizes 80x80, 40x40, 20x20
         output_names = []
         for i in range(3):  # 3 detection heads
             output_names.append(f"output{i}_reg")  # regression output
             output_names.append(f"output{i}_cls")  # classification output
-        
+
         # Export to ONNX with raw outputs (no post-processing)
         torch.onnx.export(
             self.model,
@@ -1288,15 +1287,15 @@ class Exporter:
             input_names=["images"],
             output_names=output_names,
         )
-        
+
         # Load ONNX model with all external data
         model_onnx = onnx.load(f, load_external_data=True)  # load onnx model with external data if any
-        
+
         # Add metadata
         for k, v in self.metadata.items():
             meta = model_onnx.metadata_props.add()
             meta.key, meta.value = k, str(v)
-        
+
         # Convert all tensors to raw data (embedded in the model)
         # This ensures no external data file is created
         onnx.save_model(
@@ -1306,13 +1305,13 @@ class Exporter:
             all_tensors_to_one_file=False,
             convert_attribute=False,
         )
-        
+
         # Remove any .data file if it was created
         data_file = Path(f"{f}.data")
         if data_file.exists():
             data_file.unlink()
             LOGGER.info(f"{prefix} removed external data file '{data_file.name}'")
-        
+
         LOGGER.info(
             f"\n{prefix} export success, saved as '{f}' ({file_size(f):.1f} MB)\n"
             f"{prefix} feed {f} to RKNN-Toolkit or RKNN-Toolkit2 to generate RKNN model.\n"

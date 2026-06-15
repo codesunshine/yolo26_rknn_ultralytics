@@ -13,6 +13,7 @@ This repository includes optimized RKNN export support for YOLO26 models, design
 ## 📋 Export Format
 
 **Detection Model Output Structure:**
+
 ```
 Input:  images [1, 3, 640, 640]
 
@@ -37,6 +38,7 @@ yolo export model=yolo26n.pt format=rknn
 ### Step 2: Convert to RKNN Model
 
 The `rknn_export/` directory in this repository contains complete RKNN conversion tools:
+
 - `convert.py`: Conversion script from ONNX to RKNN
 - `datasets/`: Quantization calibration dataset
 
@@ -58,12 +60,14 @@ python rknn_export/convert.py -h
 ```
 
 **Required Arguments:**
+
 - `--model-path`: Path to ONNX model file (`.onnx` file exported in Step 1)
 - `--platform`: Target platform, options:
   - `rk3562`, `rk3566`, `rk3568`, `rk3576`, `rk3588`
   - `rv1126b`, `rv1109`, `rv1126`, `rk1808`
 
 **Optional Arguments:**
+
 - `--dtype`: Quantization data type (default: `i8`)
   - `i8` or `fp`: For `rk3562`, `rk3566`, `rk3568`, `rk3576`, `rk3588`, `rv1126b`
   - `u8` or `fp`: For `rv1109`, `rv1126`, `rk1808`
@@ -100,6 +104,7 @@ python rknn_export/convert.py \
 ```
 
 Upon completion, it will display:
+
 ```
 rknn model saved to: ./best.rknn
 ```
@@ -109,18 +114,18 @@ For more deployment examples, refer to: [RKNN Model Zoo](https://github.com/airo
 ## 📝 Implementation Details
 
 ### Modified Files
+
 - **`ultralytics/engine/exporter.py`**: Enhanced `export_rknn()` method
   - Uses optimal ONNX opset version
   - Embeds all weights in single file
   - Sets meaningful output tensor names
-  
 - **`ultralytics/nn/modules/head.py`**: Updated `Detect`, `Segment`, `OBB`, `Pose` classes
   - Added RKNN-specific forward logic
   - Returns raw predictions without activation functions
-  
 - **`ultralytics/nn/autobackend.py`**: Added RKNN inference support notes
 
 ### Training & Inference
+
 - ✅ **Training**: Not affected - all modifications only apply during export
 - ✅ **Standard Export**: Other export formats (ONNX, TensorRT, etc.) work as before
 - ✅ **RKNN Export**: Special handling only when `format=rknn`
